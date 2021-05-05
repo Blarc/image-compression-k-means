@@ -4,16 +4,16 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 
-#include "../libs/stb_image.h";
-#include "../libs/stb_image_write.h";
+#include "../libs/stb_image.h"
+#include "../libs/stb_image_write.h"
 
 #include "image_io.h"
 
-byte_t *img_load(char *img_file_name, int *width, int *height, int *n_channels)
+byte_t *img_load(char *img_file, int *width, int *height, int *n_channels)
 {
     byte_t *data;
 
-    data = stbi_load(img_file_name, width, height, n_channels, 0);
+    data = stbi_load(img_file, width, height, n_channels, 0);
     if (data == NULL) {
         fprintf(stderr, "ERROR LOADING IMAGE: << Invalid file name or format >> \n");
         exit(EXIT_FAILURE);
