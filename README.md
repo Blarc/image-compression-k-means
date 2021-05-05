@@ -1,1 +1,1 @@
-# image-compression-k-means
+# Image compression using K-means clustering
