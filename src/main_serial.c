@@ -3,8 +3,10 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
+#include <omp.h>
 
 #include "image_io.h"
+#include "compression.h"
 
 #define DEFAULT_N_CLUSTERS 4
 #define DEFAULT_MAX_ITERATIONS 150
@@ -21,14 +23,8 @@ int main(int argc, char **argv)
     int max_iterations = DEFAULT_MAX_ITERATIONS;
 
     int seed = time(NULL);
-
-    byte_t *data;
-    int width, height, n_channels;
-
-    double start_time, exec_time;
-
+    
     // Parse arguments and optional parameters
-
     char optchar;
     while ((optchar = getopt(argc, argv, "k:m:o:s:h")) != -1) {
         switch (optchar)
@@ -56,7 +52,6 @@ int main(int argc, char **argv)
     in_path = argv[optind];
 
     // Validate input parameters
-
     if (in_path == NULL) {
         // TODO @blarc print_usage(argv[0])
         fprintf(stderr, "INPUT ERROR: << Parameter 'in_path' not defined >> \n");
@@ -74,29 +69,22 @@ int main(int argc, char **argv)
     }
 
     // Initialise the random seed
-
     srand(seed);
 
     // Scan input image
-
-    data = img_load(in_path, &width, &height, &n_channels);
+    int width, height, n_channels;
+    byte_t *data = img_load(in_path, &width, &height, &n_channels);
 
     // Execute k-means compression
+    double start_time = omp_get_wtime();
+    kmeans_compression(data, width, height, n_channels, n_clusters, max_iterations);
+    double execution_time = omp_get_wtime() - start_time;
 
     // Save the result
-
     img_save(out_path, data, width, height, n_channels);
+    printf("Execution time: %f\n", execution_time);
 
     free(data);
 
     return EXIT_SUCCESS;
-}
-
-double get_time()
-{
-    struct timeval timecheck;
-
-    gettimeofday(&timecheck, NULL);
-
-    return timecheck.tv_sec + timecheck.tv_usec / 1000000.0;
 }
