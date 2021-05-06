@@ -8,6 +8,13 @@ for multimedia where invented that greatly reduce the amount of data transferred
 who are always eager to watch new and fascinating images and videos of cats. Here we will look into image
 compression using K-means clustering, which is a simple unsupervised learning algorithm
 
+## Getting started
+
+### Compiling
+```bash
+gcc -o main_serial main_serial.c image_io.c -lm
+```
+
 ## Acknowledgments
 
 External libraries have been used for handling I/O of the images:
