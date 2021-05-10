@@ -11,8 +11,13 @@ compression using K-means clustering, which is a simple unsupervised learning al
 ## Getting started
 
 ### Compiling
+Serial
 ```bash
-gcc -o main_serial main_serial.c image_io.c compression_serial.c -o2 -lm -fopenmp
+gcc -o main_serial main_serial.c image_io.c compression_serial.c -O2 -lm -fopenmp
+```
+Parallel
+```bash
+gcc -o main_omp main_omp.c image_io.c compression_omp.c -O2 -lm -fopenmp
 ```
 
 ## Acknowledgments
