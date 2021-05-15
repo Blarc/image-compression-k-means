@@ -74,8 +74,10 @@ int main(int argc, char **argv)
     byte_t *data = img_load(in_path, &width, &height, &n_channels);
 
     // Execute k-means compression
+    printf("Starting...\n");
+    fflush(stdout);
     double start_time = omp_get_wtime();
-    kmeans_compression(data, width, height, n_channels, n_clusters, max_iterations);
+    kmeans_compression_gpu(data, width, height, n_channels, n_clusters, max_iterations);
     double execution_time = omp_get_wtime() - start_time;
 
     // Save the result

@@ -20,6 +20,26 @@ Parallel
 gcc -o main_omp main_omp.c image_io.c compression_omp.c -O2 -lm -fopenmp
 ```
 
+GPU
+```
+nvcc -o main_gpu main_gpu.c image_io.c compression_gpu.c -O2 -lm -lOpenCL -lgomp
+```
+
+### Running on NSC (SLURM)
+Serial
+```bash
+./main_serial ../imgs/input/bear_small.jpg
+```
+Parallel
+```bash
+./main_omp ../imgs/input/bear_small.jpg
+```
+
+GPU
+```
+srun --reservation=fri --constraint=gpu ./main_gpu ../imgs/input/bear_small.jpg
+```
+
 ## Acknowledgments
 
 External libraries have been used for handling I/O of the images:

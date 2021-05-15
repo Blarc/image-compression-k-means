@@ -127,6 +127,7 @@ void update_centers(byte_t *data, double *centers, int *labels, double *distance
     }
 
     // obtain the centers mean
+    // paralelna sekcija
     for (int cluster = 0; cluster < n_clusters; cluster++) {
         if (counts[cluster]) {
             for (int channel = 0; channel < n_channels; channel++) {
@@ -138,6 +139,7 @@ void update_centers(byte_t *data, double *centers, int *labels, double *distance
             int farthest_pixel = 0;
 
             // find the farthest pixel
+            // TODO parallel
             for (int pixel = 0; pixel < n_pixels; pixel++) {
                 if (distances[pixel] > max_distance) {
                     max_distance = distances[pixel];

@@ -13,8 +13,6 @@
 #define DEFAULT_OUT_PATH "result.jpg"
 #define DEFAULT_N_THREADS 2
 
-double get_time();
-
 int main(int argc, char **argv)
 {
     char *in_path = NULL;
