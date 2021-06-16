@@ -127,7 +127,6 @@ void update_centers(byte_t *data, double *centers, int *labels, double *distance
     }
 
     // obtain the centers mean
-    // paralelna sekcija
     for (int cluster = 0; cluster < n_clusters; cluster++) {
         if (counts[cluster]) {
             for (int channel = 0; channel < n_channels; channel++) {
@@ -138,12 +137,28 @@ void update_centers(byte_t *data, double *centers, int *labels, double *distance
             double max_distance = 0;
             int farthest_pixel = 0;
 
-            // find the farthest pixel
-            // TODO parallel
-            for (int pixel = 0; pixel < n_pixels; pixel++) {
-                if (distances[pixel] > max_distance) {
-                    max_distance = distances[pixel];
-                    farthest_pixel = pixel;
+            #pragma omp parallel
+            {
+                // these two variables are local for each thread
+                double max_distance_local = max_distance;
+                int farthest_pixel_local = farthest_pixel;
+
+                // disable synchronization after the loop with nowait
+                #pragma omp for nowait
+                for (int pixel = 0; pixel < n_pixels; pixel++) {
+                    if (distances[pixel] > max_distance) {
+                        max_distance_local = distances[pixel];
+                        farthest_pixel_local = pixel;
+                    }
+                }
+
+                // check if new maximum has been found
+                #pragma omp critical
+                {
+                    if (max_distance_local > max_distance) {
+                        max_distance = max_distance_local;
+                        farthest_pixel = farthest_pixel_local;
+                    }
                 }
             }
 
