@@ -10,25 +10,23 @@
 
 #define MAX_SOURCE_SIZE	(16384)
 #define BINS 256
-#define WORKGROUP_SIZE  (256)
+#define WORKGROUP_SIZE  (1024)
 
-void initialise_centers(byte_t *data, int *centers, int n_pixels, int n_channels, int n_clusters);
-
-void update_centers(byte_t *data, int *centers, int *labels, double *distances, int n_pixels, int n_channels, int n_clusters);
+void initialise_centers(byte_t *data, long *centers, int n_pixels, int n_channels, int n_clusters);
 
 void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels, int n_clusters, int max_iterations) {
 
     int n_pixels = width * height;
     int *labels = (int*) malloc(n_pixels * sizeof(int));
-    int *centers = (int*) malloc(n_clusters * n_channels * sizeof(int));
+    long *centers = (long*) malloc(n_clusters * n_channels * sizeof(long));
     double *distances = (double*) malloc(n_pixels * sizeof(double));
-    int *counts = (int*) calloc(n_clusters, sizeof(int));
+    int *counts = (int*) malloc(n_clusters * sizeof(int));
     int changed = 0;
 
     initialise_centers(data, centers, n_pixels, n_channels, n_clusters);
 
-    printf("[+] Reading the kernel...\n");
-    fflush(stdout);
+    // printf("[+] Reading the kernel...\n");
+    // fflush(stdout);
     FILE *kernel_fp = fopen("kernel_gpu.cl", "r");
     if (!kernel_fp)
     {
@@ -62,12 +60,12 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     cl_command_queue command_queue = clCreateCommandQueue(context, devices[0], 0, &clStatus);
 
     // Create and build a program
-    printf("[+] Creating and building the program: ");
-    fflush(stdout);
+    // printf("[+] Creating and building the program: ");
+    // fflush(stdout);
     cl_program program = clCreateProgramWithSource(context,	1, (const char **)&source_str, NULL, &clStatus);
     clStatus = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
-    printf("%s\n", clStatus);
-    fflush(stdout);
+    // printf("%s\n", clStatus);
+    // fflush(stdout);
 
     // Log
     size_t build_log_len;
@@ -89,16 +87,16 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
 
     // Transfer data from host
     // TODO @jakobm Why CL_MEM_COPY_HOST_PTR
-    cl_mem data_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, n_pixels * sizeof(byte_t), data, &clStatus);
-    cl_mem centers_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, n_clusters * n_channels * sizeof(int), centers, &clStatus);
+    cl_mem data_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, n_pixels * n_channels * sizeof(byte_t), data, &clStatus);
+    cl_mem centers_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, n_clusters * n_channels * sizeof(long), centers, &clStatus);
     cl_mem labels_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, n_pixels * sizeof(int), labels, &clStatus);
     cl_mem distances_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, n_pixels * sizeof(double), distances, &clStatus);
     cl_mem changed_ = clCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_COPY_HOST_PTR, sizeof(int), &changed, &clStatus);
     cl_mem counts_ = clCreateBuffer(context, CL_MEM_WRITE_ONLY | CL_MEM_COPY_HOST_PTR, n_clusters * sizeof(int), counts, &clStatus);
 
-    printf("[+] Creating kernels:\n");
-    printf("\t[+] Creating assign_pixels kernel: ");
-    fflush(stdout);
+    // printf("[+] Creating kernels:\n");
+    // printf("\t[+] Creating assign_pixels kernel: ");
+    // fflush(stdout);
     cl_kernel assign_pixels_kernel = clCreateKernel(program, "assign_pixels", &clStatus);
     clStatus = clSetKernelArg(assign_pixels_kernel, 0, sizeof(cl_mem), (void *) &data_);
     clStatus |= clSetKernelArg(assign_pixels_kernel, 1, sizeof(cl_mem), (void *) &centers_);
@@ -108,84 +106,113 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     clStatus |= clSetKernelArg(assign_pixels_kernel, 5, sizeof(cl_int), (void *) &n_pixels);
     clStatus |= clSetKernelArg(assign_pixels_kernel, 6, sizeof(cl_int), (void *) &n_channels);
     clStatus |= clSetKernelArg(assign_pixels_kernel, 7, sizeof(cl_int), (void *) &n_clusters);
-    printf("%s\n", clStatus);
-    fflush(stdout);
+    // printf("%s\n", clStatus);
+    // fflush(stdout);
 
-    printf("\t[+] Creating partial_sum_centers kernel: ");
-    fflush(stdout);
-    cl_kernel partial_sum_centers = clCreateKernel(program, "partial_sum_centers", &clStatus);
-    clStatus = clSetKernelArg(partial_sum_centers, 0, sizeof(cl_mem), (void *) &data_);
-    clStatus |= clSetKernelArg(partial_sum_centers, 1, sizeof(cl_mem), (void *) &centers_);
-    clStatus |= clSetKernelArg(partial_sum_centers, 2, sizeof(cl_mem), (void *) &labels_);
-    clStatus |= clSetKernelArg(partial_sum_centers, 3, sizeof(cl_mem), (void *) &distances_);
-    clStatus |= clSetKernelArg(partial_sum_centers, 4, sizeof(cl_int), (void *) &n_pixels);
-    clStatus |= clSetKernelArg(partial_sum_centers, 5, sizeof(cl_int), (void *) &n_channels);
-    clStatus |= clSetKernelArg(partial_sum_centers, 6, sizeof(cl_int), (void *) &n_clusters);
-	clStatus |= clSetKernelArg(partial_sum_centers, 7, sizeof(cl_mem), (void *) &counts_);
-    printf("%s\n", clStatus);
-    fflush(stdout);
+    // printf("\t[+] Creating partial_sum_centers kernel: ");
+    // fflush(stdout);
+    cl_kernel partial_sum_centers_kernel = clCreateKernel(program, "partial_sum_centers", &clStatus);
+    clStatus = clSetKernelArg(partial_sum_centers_kernel, 0, sizeof(cl_mem), (void *) &data_);
+    clStatus |= clSetKernelArg(partial_sum_centers_kernel, 1, sizeof(cl_mem), (void *) &centers_);
+    clStatus |= clSetKernelArg(partial_sum_centers_kernel, 2, sizeof(cl_mem), (void *) &labels_);
+    clStatus |= clSetKernelArg(partial_sum_centers_kernel, 3, sizeof(cl_mem), (void *) &distances_);
+    clStatus |= clSetKernelArg(partial_sum_centers_kernel, 4, sizeof(cl_int), (void *) &n_pixels);
+    clStatus |= clSetKernelArg(partial_sum_centers_kernel, 5, sizeof(cl_int), (void *) &n_channels);
+    clStatus |= clSetKernelArg(partial_sum_centers_kernel, 6, sizeof(cl_int), (void *) &n_clusters);
+	clStatus |= clSetKernelArg(partial_sum_centers_kernel, 7, sizeof(cl_mem), (void *) &counts_);
+    // printf("%s\n", clStatus);
+    // fflush(stdout);
+
+    // printf("\t[+] Creating centers_mean kernel: ");
+    // fflush(stdout);
+    cl_kernel centers_mean_kernel = clCreateKernel(program, "centers_mean", &clStatus);
+    clStatus = clSetKernelArg(centers_mean_kernel, 0, sizeof(cl_mem), (void *) &data_);
+    clStatus |= clSetKernelArg(centers_mean_kernel, 1, sizeof(cl_mem), (void *) &centers_);
+    clStatus |= clSetKernelArg(centers_mean_kernel, 2, sizeof(cl_mem), (void *) &distances_);
+	clStatus |= clSetKernelArg(centers_mean_kernel, 3, sizeof(cl_mem), (void *) &counts_);
+    clStatus |= clSetKernelArg(centers_mean_kernel, 4, sizeof(cl_int), (void *) &n_pixels);
+    clStatus |= clSetKernelArg(centers_mean_kernel, 5, sizeof(cl_int), (void *) &n_channels);
+    clStatus |= clSetKernelArg(centers_mean_kernel, 6, sizeof(cl_int), (void *) &n_clusters);
+    // printf("%s\n", clStatus);
+    // fflush(stdout);
+
+    // printf("\t[+] Creating update_data kernel: ");
+    // fflush(stdout);
+    cl_kernel update_data_kernel = clCreateKernel(program, "update_data", &clStatus);
+    clStatus = clSetKernelArg(update_data_kernel, 0, sizeof(cl_mem), (void *) &data_);
+    clStatus |= clSetKernelArg(update_data_kernel, 1, sizeof(cl_mem), (void *) &centers_);
+    clStatus |= clSetKernelArg(update_data_kernel, 2, sizeof(cl_mem), (void *) &labels_);
+    clStatus |= clSetKernelArg(update_data_kernel, 3, sizeof(cl_int), (void *) &n_pixels);
+    clStatus |= clSetKernelArg(update_data_kernel, 4, sizeof(cl_int), (void *) &n_channels);
+    // printf("%s\n", clStatus);
+    // fflush(stdout);
 
     // TODO @jakobm change to MAX_ITERATIONS
-    for (int i = 0; i < 1; i++) {
-        printf("[+] Starting assign_pixels kernel: ");
-        fflush(stdout);
-        clStatus = clEnqueueNDRangeKernel(command_queue, assign_pixels_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
-        clFinish(command_queue);
-        printf("%s\n", clStatus);
-        fflush(stdout);
-        
-        printf("[+] Copying changed to the host: ");
-        fflush(stdout);
-        clStatus = clEnqueueReadBuffer(command_queue, changed_, CL_TRUE, 0, sizeof(int), &changed, 0, NULL, NULL);
-        printf("%s\n", clStatus);
-        fflush(stdout);
+    for (int i = 0; i < max_iterations; i++) {
 
-        printf("\t[+] Changed: %d\n", changed);
+        // printf("### Loop %d ###\n", i);
+        // printf("[+] Starting assign_pixels kernel: ");
+        // fflush(stdout);
+        clStatus = clEnqueueNDRangeKernel(command_queue, assign_pixels_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+        // printf("%s\n", clStatus);
+        // fflush(stdout);
+        
+        // printf("[+] Copying changed to host: ");
+        // fflush(stdout);
+        clStatus = clEnqueueReadBuffer(command_queue, changed_, CL_TRUE, 0, sizeof(int), &changed, 0, NULL, NULL);
+        // printf("%s\n", clStatus);
+        // printf("\t[+] Changed: %d\n", changed);
+        // fflush(stdout);
 
         // if clusters haven't changed, they won't change in the next iteration as well, so just stop early
         if (!changed) {
             break;
         }
 
-        // reset centers and initialise clusters' counters
-        for (int cluster = 0; cluster < n_clusters; cluster++) {
-            for (int channel = 0; channel < n_channels; channel++) {
-                centers[cluster * n_channels + channel] = 0;
-            }
-            counts[cluster] = 0;
-        }
+        // printf("[+] Starting partial_sum_centers kernel: ");
+        // fflush(stdout);
+        clStatus = clEnqueueNDRangeKernel(command_queue, partial_sum_centers_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+        // printf("%s\n", clStatus);
+        // fflush(stdout);
 
-        printf("[+] Starting update_centers kernel: ");
-        fflush(stdout);
-        clStatus = clEnqueueNDRangeKernel(command_queue, update_centers_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
-        clFinish(command_queue);
-        printf("%s\n", clStatus);
-        fflush(stdout);
-
-        printf("[+] Copying counts to the host: ");
-        fflush(stdout);
-        clStatus = clEnqueueReadBuffer(command_queue, counts_, CL_TRUE, 0, n_clusters * sizeof(int), counts, 0, NULL, NULL);
-        printf("%s\n", clStatus);
-        fflush(stdout);
-
-        printf("\t[+] Counts: ");
-        int sum = 0;
-        for (int i = 0; i < n_clusters; i++) {
-            printf("%d ", counts[i]);
-            sum += counts[i];
-        }
-        printf("\n\t[+] Correct: %d\n", n_pixels == sum);
-
+        // printf("[+] Starting centers_mean kernel: ");
+        // fflush(stdout);
+        clStatus = clEnqueueNDRangeKernel(command_queue, centers_mean_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+        // printf("%s\n", clStatus);
+        // fflush(stdout);
     }
 
+    // printf("[+] Starting update_data kernel: ");
+    // fflush(stdout);
+    clStatus = clEnqueueNDRangeKernel(command_queue, update_data_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+    // printf("%s\n", clStatus);
+    // fflush(stdout);
 
+    // printf("[+] Copying update data to host: ");
+    // fflush(stdout);
+    clStatus = clEnqueueReadBuffer(command_queue, data_, CL_TRUE, 0, n_pixels * n_channels * sizeof(byte_t), data, 0, NULL, NULL);
+    // printf("%s\n", clStatus);
+    // printf("\t[+] Updated data: ");
+    // for (int pixel = 0; pixel < 20; pixel++) {
+    //     for (int channel = 0; channel < n_channels; channel++) {
+    //         printf("%d ", data[pixel * n_channels + channel]);
+    //     }
+    //     printf("| ");
+    // }
+    // printf("\n");
+    // fflush(stdout);
+
+
+    clFinish(command_queue);
+
+    free(counts);
     free(centers);
     free(labels);
     free(distances);
 
 }
 
-void initialise_centers(byte_t *data, int *centers, int n_pixels, int n_channels, int n_clusters)
+void initialise_centers(byte_t *data, long *centers, int n_pixels, int n_channels, int n_clusters)
 {
     for (int cluster = 0; cluster < n_clusters; cluster++) {
         // Pick a random pixel
