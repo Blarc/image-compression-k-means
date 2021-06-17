@@ -37,6 +37,7 @@ Parallel
 
 GPU
 ```
+module load CUDA
 srun --reservation=fri --constraint=gpu ./main_gpu ../imgs/input/bear_small.jpg
 ```
 

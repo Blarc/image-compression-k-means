@@ -1,5 +1,5 @@
 __kernel void assign_pixels(__global char *data,
-                            __global double *centers,
+                            __global int *centers,
                             __global int *labels,
                             __global double *distances,
                             __global int *changed,
@@ -52,5 +52,35 @@ __kernel void assign_pixels(__global char *data,
     // set the outside flag
     if (have_clusters_changed) {
         *changed = 1;
+    }
+}
+
+__kernel void partial_sum_centers(__global char *data,
+                                  __global int *centers,
+                                  __global int *labels,
+                                  __global double *distances,
+                                  int n_pixels,
+                                  int n_channels,
+                                  int n_clusters,
+                                  __global int *counts
+)
+{
+    int lid = (int) get_local_id(0);
+    int gid = (int) get_global_id(0); 
+
+    int min_cluster, channel;
+
+    // TODO @jakobm This could probably be optimized by sequential memory access
+    while(gid < n_pixels)
+    {
+        min_cluster = labels[gid];
+
+        for (channel = 0; channel < n_channels; channel++) {
+            atomic_add(&centers[min_cluster * n_channels + channel], data[gid * n_channels + channel]);
+        }
+
+        atomic_inc(&counts[min_cluster]);
+
+        gid += get_global_size(0);
     }
 }

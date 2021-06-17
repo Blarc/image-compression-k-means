@@ -82,6 +82,8 @@ int main(int argc, char **argv)
 
     // Save the result
     img_save(out_path, data, width, height, n_channels);
+    printf("Input: %s\n", in_path);
+    printf("Output: %s\n", out_path);
     printf("Execution time: %f\n", execution_time);
 
     free(data);
