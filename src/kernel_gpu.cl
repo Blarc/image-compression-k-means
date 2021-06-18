@@ -4,7 +4,6 @@ __kernel void assign_pixels(__global unsigned char *data,
                             __global long *centers,
                             __global int *labels,
                             __global double *distances,
-                            __global int *changed,
                             int n_pixels,
                             int n_channels,
                             int n_clusters
@@ -17,7 +16,7 @@ __kernel void assign_pixels(__global unsigned char *data,
     int gid = (int) get_global_id(0);
 
     int min_cluster = 0;
-    int have_clusters_changed = 0;
+    // int have_clusters_changed = 0;
 
     while( gid < n_pixels )
     {
@@ -44,7 +43,7 @@ __kernel void assign_pixels(__global unsigned char *data,
         // if pixel's cluster has changed, update it and set 'has_changed' to True
         if (labels[gid] != min_cluster) {
             labels[gid] = min_cluster;
-            have_clusters_changed = 1;
+            // have_clusters_changed = 1;
         }
 
 
@@ -52,9 +51,9 @@ __kernel void assign_pixels(__global unsigned char *data,
     }
 
     // set the outside flag
-    if (have_clusters_changed) {
-        *changed = 1;
-    }
+    // if (have_clusters_changed) {
+    //     *changed = 1;
+    // }
 }
 
 __kernel void partial_sum_centers(__global unsigned char *data,
