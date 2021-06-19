@@ -19,15 +19,18 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     double start_time = 0;
     int n_pixels = width * height;
     int *labels = (int*) malloc(n_pixels * sizeof(int));
+    int *labels_old = (int*) malloc(n_pixels * sizeof(int));
     long *centers = (long*) malloc(n_clusters * n_channels * sizeof(long));
+    long *centers_old = (long*) malloc(n_clusters * n_channels * sizeof(long));
     double *distances = (double*) malloc(n_pixels * sizeof(double));
+    double *distances_old = (double*) malloc(n_pixels * sizeof(double));
     int *counts = (int*) malloc(n_clusters * sizeof(int));
     int changed = 0;
 
     initialise_centers(data, centers, n_pixels, n_channels, n_clusters);
 
-    // printf("[+] Reading the kernel...\n");
-    // fflush(stdout);
+    printf("[+] Reading the kernel...\n");
+    fflush(stdout);
     FILE *kernel_fp = fopen("kernel_gpu.cl", "r");
     if (!kernel_fp)
     {
@@ -61,12 +64,12 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     cl_command_queue command_queue = clCreateCommandQueue(context, devices[0], 0, &clStatus);
 
     // Create and build a program
-    // printf("[+] Creating and building the program: ");
-    // fflush(stdout);
+    printf("[+] Creating and building the program: ");
+    fflush(stdout);
     cl_program program = clCreateProgramWithSource(context,	1, (const char **)&source_str, NULL, &clStatus);
     clStatus = clBuildProgram(program, 1, devices, NULL, NULL, NULL);
-    // printf("%s\n", clStatus);
-    // fflush(stdout);
+    printf("%s\n", clStatus);
+    fflush(stdout);
 
     // Log
     size_t build_log_len;
@@ -87,18 +90,44 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     size_t global_item_size = num_groups * local_item_size;
 
     // Transfer data from host
-    // TODO @jakobm Why CL_MEM_COPY_HOST_PTR
     start_time = omp_get_wtime();
     cl_mem data_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, n_pixels * n_channels * sizeof(byte_t), data, &clStatus);
     cl_mem centers_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , n_clusters * n_channels * sizeof(long), centers, &clStatus);
+    cl_mem centers_old_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , n_clusters * n_channels * sizeof(long), centers, &clStatus);
     cl_mem labels_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , n_pixels * sizeof(int), labels, &clStatus);
+    cl_mem labels_old_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , n_pixels * sizeof(int), labels, &clStatus);
     cl_mem distances_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , n_pixels * sizeof(double), distances, &clStatus);
+    cl_mem distances_old_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , n_pixels * sizeof(double), distances, &clStatus);
     // cl_mem changed_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , sizeof(int), &changed, &clStatus);
     cl_mem counts_ = clCreateBuffer(context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR , n_clusters * sizeof(int), counts, &clStatus);
 
-    // printf("[+] Creating kernels:\n");
-    // printf("\t[+] Creating assign_pixels kernel: ");
-    // fflush(stdout);
+    printf("[+] Creating kernels:\n");
+    printf("\t[+] Creating assign_pixels_old kernel: ");
+    fflush(stdout);
+
+    cl_kernel assign_pixels_kernel_old = clCreateKernel(program, "assign_pixels_old", &clStatus);
+    clStatus = clSetKernelArg(assign_pixels_kernel_old, 0, sizeof(cl_mem), (void *) &data_);
+    clStatus |= clSetKernelArg(assign_pixels_kernel_old, 1, sizeof(cl_mem), (void *) &centers_old_);
+    clStatus |= clSetKernelArg(assign_pixels_kernel_old, 2, sizeof(cl_mem), (void *) &labels_old_);
+    clStatus |= clSetKernelArg(assign_pixels_kernel_old, 3, sizeof(cl_mem), (void *) &distances_old_);
+    // clStatus |= clSetKernelArg(assign_pixels_kernel, 4, sizeof(cl_mem), (void *) &changed_);
+    clStatus |= clSetKernelArg(assign_pixels_kernel_old, 4, sizeof(cl_int), (void *) &n_pixels);
+    clStatus |= clSetKernelArg(assign_pixels_kernel_old, 5, sizeof(cl_int), (void *) &n_channels);
+    clStatus |= clSetKernelArg(assign_pixels_kernel_old, 6, sizeof(cl_int), (void *) &n_clusters);
+    printf("%s\n", clStatus);
+    fflush(stdout);
+
+    // assign_pixels_kernel - divide work
+    size_t local_item_size_assign_pixels = WORKGROUP_SIZE;
+    size_t num_groups_assign_pixels = (n_pixels * n_clusters * n_channels - 1) / local_item_size_assign_pixels + 1;
+    size_t global_item_size_assign_pixels = num_groups_assign_pixels * local_item_size_assign_pixels;
+
+    // printf("local %d\n", local_item_size_assign_pixels);
+    // printf("global %d\n", global_item_size_assign_pixels);
+    // printf("#groups %d\n", num_groups_assign_pixels);
+
+    printf("\t[+] Creating assign_pixels kernel: ");
+    fflush(stdout);
     cl_kernel assign_pixels_kernel = clCreateKernel(program, "assign_pixels", &clStatus);
     clStatus = clSetKernelArg(assign_pixels_kernel, 0, sizeof(cl_mem), (void *) &data_);
     clStatus |= clSetKernelArg(assign_pixels_kernel, 1, sizeof(cl_mem), (void *) &centers_);
@@ -108,11 +137,14 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     clStatus |= clSetKernelArg(assign_pixels_kernel, 4, sizeof(cl_int), (void *) &n_pixels);
     clStatus |= clSetKernelArg(assign_pixels_kernel, 5, sizeof(cl_int), (void *) &n_channels);
     clStatus |= clSetKernelArg(assign_pixels_kernel, 6, sizeof(cl_int), (void *) &n_clusters);
-    // printf("%s\n", clStatus);
-    // fflush(stdout);
+    // LOCAL
+    clStatus |= clSetKernelArg(assign_pixels_kernel, 7, local_item_size_assign_pixels * sizeof(double), NULL);
+    clStatus |= clSetKernelArg(assign_pixels_kernel, 8, sizeof(cl_int), (void *) &local_item_size_assign_pixels);
+    printf("%s\n", clStatus);
+    fflush(stdout);
 
-    // printf("\t[+] Creating partial_sum_centers kernel: ");
-    // fflush(stdout);
+    printf("\t[+] Creating partial_sum_centers kernel: ");
+    fflush(stdout);
     cl_kernel partial_sum_centers_kernel = clCreateKernel(program, "partial_sum_centers", &clStatus);
     clStatus = clSetKernelArg(partial_sum_centers_kernel, 0, sizeof(cl_mem), (void *) &data_);
     clStatus |= clSetKernelArg(partial_sum_centers_kernel, 1, sizeof(cl_mem), (void *) &centers_);
@@ -122,11 +154,11 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     clStatus |= clSetKernelArg(partial_sum_centers_kernel, 5, sizeof(cl_int), (void *) &n_channels);
     clStatus |= clSetKernelArg(partial_sum_centers_kernel, 6, sizeof(cl_int), (void *) &n_clusters);
 	clStatus |= clSetKernelArg(partial_sum_centers_kernel, 7, sizeof(cl_mem), (void *) &counts_);
-    // printf("%s\n", clStatus);
-    // fflush(stdout);
+    printf("%s\n", clStatus);
+    fflush(stdout);
 
-    // printf("\t[+] Creating centers_mean kernel: ");
-    // fflush(stdout);
+    printf("\t[+] Creating centers_mean kernel: ");
+    fflush(stdout);
     cl_kernel centers_mean_kernel = clCreateKernel(program, "centers_mean", &clStatus);
     clStatus = clSetKernelArg(centers_mean_kernel, 0, sizeof(cl_mem), (void *) &data_);
     clStatus |= clSetKernelArg(centers_mean_kernel, 1, sizeof(cl_mem), (void *) &centers_);
@@ -135,22 +167,23 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     clStatus |= clSetKernelArg(centers_mean_kernel, 4, sizeof(cl_int), (void *) &n_pixels);
     clStatus |= clSetKernelArg(centers_mean_kernel, 5, sizeof(cl_int), (void *) &n_channels);
     clStatus |= clSetKernelArg(centers_mean_kernel, 6, sizeof(cl_int), (void *) &n_clusters);
-    // printf("%s\n", clStatus);
-    // fflush(stdout);
+    printf("%s\n", clStatus);
+    fflush(stdout);
 
-    // printf("\t[+] Creating update_data kernel: ");
-    // fflush(stdout);
+    printf("\t[+] Creating update_data kernel: ");
+    fflush(stdout);
     cl_kernel update_data_kernel = clCreateKernel(program, "update_data", &clStatus);
     clStatus = clSetKernelArg(update_data_kernel, 0, sizeof(cl_mem), (void *) &data_);
     clStatus |= clSetKernelArg(update_data_kernel, 1, sizeof(cl_mem), (void *) &centers_);
     clStatus |= clSetKernelArg(update_data_kernel, 2, sizeof(cl_mem), (void *) &labels_);
     clStatus |= clSetKernelArg(update_data_kernel, 3, sizeof(cl_int), (void *) &n_pixels);
     clStatus |= clSetKernelArg(update_data_kernel, 4, sizeof(cl_int), (void *) &n_channels);
-    // printf("%s\n", clStatus);
-    // fflush(stdout);
+    printf("%s\n", clStatus);
+    fflush(stdout);
 
     double transfer_data_time = omp_get_wtime() - start_time;
 
+    double assign_pixels_time_old = 0;
     double assign_pixels_time = 0;
     double read_changed_time = 0;
     double partial_sum_centers_time = 0;
@@ -158,17 +191,67 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     double update_data_time = 0;
     double read_updated_data_time = 0;
 
-    for (int i = 0; i < max_iterations; i++) {
+    for (int i = 0; i < 1; i++) {
 
         // printf("### Loop %d ###\n", i);
-        // printf("[+] Starting assign_pixels kernel: ");
-        // fflush(stdout);
+        printf("[+] Starting assign_pixels_old kernel: ");
+        fflush(stdout);
         start_time = omp_get_wtime();
-        clStatus = clEnqueueNDRangeKernel(command_queue, assign_pixels_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+        clStatus = clEnqueueNDRangeKernel(command_queue, assign_pixels_kernel_old, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+        clStatus = clFinish(command_queue);
+        assign_pixels_time_old += omp_get_wtime() - start_time;
+        printf("%s\n", clStatus);
+        printf("\t[+] time: %lf\n", assign_pixels_time_old);
+        fflush(stdout);
+
+        printf("\t[+] Reading distances_old: ");
+        clStatus = clEnqueueReadBuffer(command_queue, distances_old_, CL_TRUE, 0, n_pixels * sizeof(double), distances_old, 0, NULL, NULL);
+        clStatus = clFinish(command_queue);
+        printf("%s\n", clStatus);
+        fflush(stdout);
+
+        int tmp_non_zero_old = 0;
+        int tmp_zero_old = 0;
+        for (int d = 0; d < n_pixels; d++) {
+            if (distances_old[d] > 0) {
+                tmp_non_zero_old++;
+            }
+            else {
+                tmp_zero_old++;
+            }
+        }
+        printf("\t[+] zero_old: %d\n", tmp_zero_old);
+        printf("\t[+] non-zero_old: %d\n", tmp_non_zero_old);
+
+        printf("[+] Starting assign_pixels kernel: ");
+        fflush(stdout);
+        start_time = omp_get_wtime();
+        clStatus = clEnqueueNDRangeKernel(command_queue, assign_pixels_kernel, 1, NULL, &global_item_size_assign_pixels, &local_item_size_assign_pixels, 0, NULL, NULL);
         clStatus = clFinish(command_queue);
         assign_pixels_time += omp_get_wtime() - start_time;
-        // printf("%s\n", clStatus);
-        // fflush(stdout);
+        printf("%s\n", clStatus);
+        printf("\t[+] time: %lf\n", assign_pixels_time);
+        fflush(stdout);
+
+        printf("\t[+] Reading distances: ");
+        clStatus = clEnqueueReadBuffer(command_queue, distances_, CL_TRUE, 0, n_pixels * sizeof(double), distances, 0, NULL, NULL);
+        clStatus = clFinish(command_queue);
+        printf("%s\n", clStatus);
+        fflush(stdout);
+
+        int tmp_non_zero = 0;
+        int tmp_zero = 0;
+        for (int d = 0; d < n_pixels; d++) {
+            if (distances[d] > 0) {
+                tmp_non_zero++;
+            }
+            else {
+                tmp_zero++;
+            }
+        }
+        printf("\t[+] zero: %d\n", tmp_zero);
+        printf("\t[+] non-zero: %d\n", tmp_non_zero);
+
         
         // // printf("[+] Copying changed to host: ");
         // // fflush(stdout);
@@ -187,8 +270,8 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
         // printf("[+] Starting partial_sum_centers kernel: ");
         // fflush(stdout);
         start_time = omp_get_wtime();
-        clStatus = clEnqueueNDRangeKernel(command_queue, partial_sum_centers_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
-        clStatus = clFinish(command_queue);
+        // clStatus = clEnqueueNDRangeKernel(command_queue, partial_sum_centers_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+        // clStatus = clFinish(command_queue);
         partial_sum_centers_time += omp_get_wtime() - start_time;
         // printf("%s\n", clStatus);
         // fflush(stdout);
@@ -196,8 +279,8 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
         // printf("[+] Starting centers_mean kernel: ");
         // fflush(stdout);
         start_time = omp_get_wtime();
-        clStatus = clEnqueueNDRangeKernel(command_queue, centers_mean_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
-        clStatus = clFinish(command_queue);
+        // clStatus = clEnqueueNDRangeKernel(command_queue, centers_mean_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+        // clStatus = clFinish(command_queue);
         centers_mean_time += omp_get_wtime() - start_time;
         // printf("%s\n", clStatus);
         // fflush(stdout);
@@ -206,8 +289,8 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     // printf("[+] Starting update_data kernel: ");
     // fflush(stdout);
     start_time = omp_get_wtime();
-    clStatus = clEnqueueNDRangeKernel(command_queue, update_data_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
-    clStatus = clFinish(command_queue);
+    // clStatus = clEnqueueNDRangeKernel(command_queue, update_data_kernel, 1, NULL, &global_item_size, &local_item_size, 0, NULL, NULL);
+    // clStatus = clFinish(command_queue);
     update_data_time += omp_get_wtime() - start_time;
     // printf("%s\n", clStatus);
     // fflush(stdout);
@@ -216,8 +299,8 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     // printf("[+] Copying update data to host: ");
     // fflush(stdout);
     start_time = omp_get_wtime();
-    clStatus = clEnqueueReadBuffer(command_queue, data_, CL_TRUE, 0, n_pixels * n_channels * sizeof(byte_t), data, 0, NULL, NULL);
-    clStatus = clFinish(command_queue);
+    // clStatus = clEnqueueReadBuffer(command_queue, data_, CL_TRUE, 0, n_pixels * n_channels * sizeof(byte_t), data, 0, NULL, NULL);
+    // clStatus = clFinish(command_queue);
     read_updated_data_time = omp_get_wtime() - start_time;
     // printf("%s\n", clStatus);
     // printf("\t[+] Updated data: ");
@@ -231,14 +314,14 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     // fflush(stdout);
 
 
-    printf("transfer_data_time: %f\n", transfer_data_time);
-    printf("assign_pixels_time: %f\n", assign_pixels_time);
-    printf("read_changed_time: %f\n", read_changed_time);
-    printf("partial_sum_centers_time: %f\n", partial_sum_centers_time);
-    printf("centers_mean_time: %f\n", centers_mean_time);
-    printf("update_data_time: %f\n", update_data_time);
-    printf("read_updated_data_time: %f\n", read_updated_data_time);
-    fflush(stdout);
+    // printf("transfer_data_time: %f\n", transfer_data_time);
+    // printf("assign_pixels_time: %f\n", assign_pixels_time);
+    // printf("read_changed_time: %f\n", read_changed_time);
+    // printf("partial_sum_centers_time: %f\n", partial_sum_centers_time);
+    // printf("centers_mean_time: %f\n", centers_mean_time);
+    // printf("update_data_time: %f\n", update_data_time);
+    // printf("read_updated_data_time: %f\n", read_updated_data_time);
+    // fflush(stdout);
 
     clStatus = clReleaseKernel(assign_pixels_kernel);
     clStatus = clReleaseKernel(partial_sum_centers_kernel);

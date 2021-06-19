@@ -1,6 +1,6 @@
 #pragma OPENCL EXTENSION cl_khr_int64_base_atomics : enable
 
-__kernel void assign_pixels(__global unsigned char *data,
+__kernel void assign_pixels_old(__global unsigned char *data,
                             __global long *centers,
                             __global int *labels,
                             __global double *distances,
@@ -54,6 +54,82 @@ __kernel void assign_pixels(__global unsigned char *data,
     // if (have_clusters_changed) {
     //     *changed = 1;
     // }
+}
+
+__kernel void assign_pixels(__global unsigned char *data,
+                            __global long *centers,
+                            __global int *labels,
+                            __global double *distances,
+                            int n_pixels,
+                            int n_channels,
+                            int n_clusters,
+                            __local double *distances_loc,
+                            int size
+)
+{
+    int gid = (int) get_global_id(0);
+    int lid = (int) get_local_id(0);
+
+    // split
+    // thread = channel
+    int fixed_size = size - (size % (n_channels * n_clusters));
+    if(lid < fixed_size)
+    {
+        int pixel = gid / (n_clusters * n_channels);
+        int channel_index = gid % n_channels;
+        int cluster_index = gid / (n_channels * n_pixels);
+
+        int channel = (int) data[pixel * n_channels + channel_index];
+        int center_channel = (int) centers[cluster_index * n_channels + channel_index];
+
+        double tmp = channel - center_channel;
+        distances_loc[lid] = tmp * tmp;
+    }
+
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+    // if (lid == 0) {
+    //     for (int i = 0; i < fixed_size; i++) {
+    //         if (distances_loc[i] > 0) {
+    //             printf("%lf\n", distances_loc[i]);
+    //         }
+    //     }
+    // }
+
+    // barrier(CLK_LOCAL_MEM_FENCE);
+
+    // sum
+    // thread = cluster
+    int i = 0;
+    int num_clusters = fixed_size / n_channels;
+    if(lid < num_clusters)
+    {
+        for (i = 1; i < n_channels; i++) {
+            distances_loc[lid * n_channels] += distances_loc[lid * n_channels + i];
+        }
+    }
+
+	// barrier(CLK_LOCAL_MEM_FENCE);
+
+    // minimum
+    // thread = pixel
+    i = 0;
+    int num_pixels = fixed_size / (n_channels * n_clusters);
+    if(lid < num_pixels)
+    {
+        int min_cluster = 0;
+        double min_distance = distances_loc[lid * n_clusters * n_channels];
+
+        for (i = 1; i < n_clusters; i++) {
+            if (distances_loc[lid * n_clusters * n_channels + i * n_channels] < min_distance) {
+                min_distance = distances_loc[lid * n_clusters * n_channels + i * n_channels];
+                min_cluster = i;
+            }
+        }
+
+        distances[gid % n_pixels] = min_distance;
+        labels[gid % n_pixels] = min_cluster;
+    }
 }
 
 __kernel void partial_sum_centers(__global unsigned char *data,
