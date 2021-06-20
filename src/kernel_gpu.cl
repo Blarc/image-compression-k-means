@@ -56,6 +56,100 @@ __kernel void assign_pixels(__global unsigned char *data,
     // }
 }
 
+__kernel void partial_sum_centers_new(__global unsigned char *data,
+                                  __global long *centers,
+                                  __global int *labels,
+                                  __global double *distances,
+                                  int n_pixels,
+                                  int n_channels,
+                                  int n_clusters,
+                                  __global int *counts,
+                                  __local int* loc
+)
+{
+    int gid = (int) get_global_id(0);
+    int lid = (int) get_local_id(0);
+    int group_id = (int) get_group_id(0);
+    int local_size = (int) get_local_size(0);
+
+    if (gid == 0) {
+        // reset centers and initialise clusters' counters
+        for (int cluster = 0; cluster < n_clusters; cluster++) {
+            for (int channel = 0; channel < n_channels; channel++) {
+                centers[cluster * n_channels + channel] = 0;
+            }
+            counts[cluster] = 0;
+        }
+    }
+
+    // Wait for all threads
+	barrier(CLK_GLOBAL_MEM_FENCE);
+
+    int clusters_channels = n_clusters * (n_channels + 1);
+    int all = n_pixels * clusters_channels;
+    int pixel = gid / clusters_channels;
+    int channel = gid % (n_channels + 1);
+    int cluster = (gid / (n_channels + 1)) % n_clusters;
+    int label = labels[pixel];
+
+    if (gid < all) {
+        if (label == cluster) {
+            if (channel < n_channels) {
+                loc[lid] = data[pixel * n_channels + channel];
+            }
+            else {
+                loc[lid] = 1;
+            }
+        }
+        else {
+            loc[lid] = 0;
+        }
+    }
+
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+    // Reduction
+
+    int log2a = log2((float) local_size / clusters_channels);
+    int floorPow2 = exp2((float)log2a) * clusters_channels;
+
+    if (local_size != floorPow2) {
+        if (lid >= floorPow2) {
+            loc[lid - floorPow2] += loc[lid];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    for (int i = (floorPow2 >> 1); i >= clusters_channels; i >>= 1) {
+        if (lid < i) {
+            loc[lid] += loc[lid + i];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    // if (gid == 0) {
+    //     printf("\n");
+    //     for (int j = 0; j < 16; j++) {
+    //         printf("%5d ", loc[j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    barrier(CLK_GLOBAL_MEM_FENCE);
+
+    // Sum the results
+
+    if (lid < clusters_channels)
+    {
+        if (channel < n_channels) {
+            atomic_add(&centers[cluster * n_channels + channel], loc[lid]);
+        }
+        else {
+            atomic_add(&counts[cluster], loc[lid]);
+        }
+    }
+}
+
 __kernel void partial_sum_centers(__global unsigned char *data,
                                   __global long *centers,
                                   __global int *labels,
