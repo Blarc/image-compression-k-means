@@ -8,7 +8,7 @@
 #include "image_io.h"
 #include "compression.h"
 
-#define DEFAULT_N_CLUSTERS 4
+#define DEFAULT_N_CLUSTERS 8
 #define DEFAULT_MAX_ITERATIONS 150
 #define DEFAULT_OUT_PATH "result.jpg"
 #define DEFAULT_N_THREADS 2
@@ -62,7 +62,7 @@ int main(int argc, char **argv)
     }
 
     if (n_clusters < 2) {
-        fprintf(stderr, "INPUT ERROR: << Invalid number of clusters >> \n");
+        fprintf(stderr, "INPUT ERROR: << Invalid number of clusters %d >> \n", n_clusters);
         exit(EXIT_FAILURE);    
     }
 

@@ -4,6 +4,7 @@ __kernel void assign_pixels(__global unsigned char *data,
                             __global long *centers,
                             __global int *labels,
                             __global double *distances,
+                            __global int *changed,
                             int n_pixels,
                             int n_channels,
                             int n_clusters
@@ -16,7 +17,7 @@ __kernel void assign_pixels(__global unsigned char *data,
     int gid = (int) get_global_id(0);
 
     int min_cluster = 0;
-    // int have_clusters_changed = 0;
+    int have_clusters_changed = 0;
 
     while( gid < n_pixels )
     {
@@ -43,7 +44,7 @@ __kernel void assign_pixels(__global unsigned char *data,
         // if pixel's cluster has changed, update it and set 'has_changed' to True
         if (labels[gid] != min_cluster) {
             labels[gid] = min_cluster;
-            // have_clusters_changed = 1;
+            have_clusters_changed = 1;
         }
 
 
@@ -51,9 +52,9 @@ __kernel void assign_pixels(__global unsigned char *data,
     }
 
     // set the outside flag
-    // if (have_clusters_changed) {
-    //     *changed = 1;
-    // }
+    if (have_clusters_changed) {
+        *changed = 1;
+    }
 }
 
 __kernel void partial_sum_centers_new(__global unsigned char *data,
@@ -129,10 +130,12 @@ __kernel void partial_sum_centers_new(__global unsigned char *data,
 
     // if (gid == 0) {
     //     printf("\n");
-    //     for (int j = 0; j < 16; j++) {
-    //         printf("%5d ", loc[j]);
+    //     for (int i = 0; i < 1; i++) {
+    //         for (int j = 0; j < 16; j++) {
+    //             printf("%5d ", loc[i * 16 + j]);
+    //         }
+    //         printf("\n");
     //     }
-    //     printf("\n");
     // }
 
     barrier(CLK_GLOBAL_MEM_FENCE);
@@ -150,6 +153,7 @@ __kernel void partial_sum_centers_new(__global unsigned char *data,
     }
 }
 
+// deprecated
 __kernel void partial_sum_centers(__global unsigned char *data,
                                   __global long *centers,
                                   __global int *labels,
@@ -203,6 +207,7 @@ __kernel void centers_mean(__global unsigned char *data,
 )
 {
     int gid = (int) get_global_id(0); 
+    int lid = (int) get_local_id(0);
 
     // TODO @jakobm This could probably be optimized with more threads
     if (gid == 0) {
@@ -234,6 +239,74 @@ __kernel void centers_mean(__global unsigned char *data,
             }
         }
     }
+
+    // for (int cluster = 0; cluster < n_clusters; cluster++) {
+    //     if (counts[cluster] == 0) {
+    //         if (gid < n_pixels) {
+    //             loc[lid] = distances[gid];
+    //             loc_index[lid] = gid;
+    //         }
+    //         else {
+    //             loc[lid] = DBL_MAX;
+    //             loc_index[lid] = -1;
+    //         }
+
+    //         barrier(CLK_LOCAL_MEM_FENCE);
+
+    //         // Reduction
+
+    //         int log2a = log2((float) get_local_size(0));
+    //         int floorPow2 = exp2((float)log2a);
+
+    //         if (get_local_size(0) != floorPow2) {
+    //             if (lid >= floorPow2) {
+    //                 if (loc[lid - floorPow2] < loc[lid]) {
+    //                     loc[lid - floorPow2] = loc[lid];
+    //                     loc_index[lid - floorPow2] = gid;
+    //                 }
+    //                 barrier(CLK_LOCAL_MEM_FENCE);
+    //             }
+    //         }
+
+    //         for (int i = (floorPow2 >> 1); i > 0; i >>= 1) {
+    //             if (lid < i) {
+    //                 if (loc[lid] < loc[lid + i]) {
+    //                     loc[lid] = loc[lid + i];
+    //                     loc_index[lid] = gid + i;
+    //                 }
+    //             }
+    //             barrier(CLK_LOCAL_MEM_FENCE);
+    //         }
+
+    //         // write to global
+            
+    //         // if (gid == 0) {
+    //         //     // set the centers channels to the farthest pixel's channels
+    //         //     int farthest_pixel = loc_index[0];
+    //         //     for (int channel = 0; channel < n_channels; channel++) {
+    //         //         centers[cluster * n_channels + channel] = data[farthest_pixel * n_channels + channel];
+    //         //     }
+    //         //     distances[farthest_pixel] = 0;
+    //         // }
+
+    //         // if (gid == 0) {
+    //         //     printf("\n\n");
+    //         //     for (int j = 0; j < 64; j++) {
+    //         //         for (int i = 0; i < 16; i++) {
+    //         //             printf("%6.2lf ", loc[j * 16 + i]);
+    //         //         }
+    //         //         printf("\n");
+    //         //     }
+    //         //     printf("\n\n");
+    //         //     for (int j = 0; j < 64; j++) {
+    //         //         for (int i = 0; i < 16; i++) {
+    //         //             printf("%5d ", loc_index[j * 16 + i]);
+    //         //         }
+    //         //         printf("\n");
+    //         //     }
+    //         // }
+    //     }
+    // }
 }
 
 __kernel void update_data(__global unsigned char *data,

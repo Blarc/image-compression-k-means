@@ -2,6 +2,7 @@
 #include <float.h>
 #include <math.h>
 #include <stdio.h>
+#include <omp.h>
 
 #include "image_io.h"
 #include "compression.h"
@@ -20,21 +21,41 @@ void kmeans_compression(byte_t *data, int width, int height, int n_channels, int
     double *centers = malloc(n_clusters * n_channels * sizeof(double));
     double *distances = malloc(n_pixels * sizeof(double));
 
-    initialise_centers(data, centers, n_pixels, n_channels, n_clusters);
+    double initialise_centers_time = 0;
+    double assign_pixels_time = 0;
+    double update_centers_time = 0;
+    double update_data_time = 0;
 
+    double start_time = omp_get_wtime();
+    initialise_centers(data, centers, n_pixels, n_channels, n_clusters);
+    initialise_centers_time += omp_get_wtime() - start_time;
+
+    start_time = omp_get_wtime();
     int have_clusters_changed = 0;
     for (int i = 0; i < max_iterations; i++) {
+        start_time = omp_get_wtime();
         assign_pixels(data, centers, labels, distances, &have_clusters_changed, n_pixels, n_channels, n_clusters);
+        assign_pixels_time += omp_get_wtime() - start_time;
 
         // if clusters haven't changed, they won't change in the next iteration as well, so just stop early
         if (!have_clusters_changed) {
             break;
         }
 
+        start_time = omp_get_wtime();
         update_centers(data, centers, labels, distances, n_pixels, n_channels, n_clusters);
+        update_centers_time += omp_get_wtime() - start_time;
     }
 
+    start_time = omp_get_wtime();
     update_data(data, centers, labels, n_pixels, n_channels);
+    update_data_time += omp_get_wtime() - start_time;
+
+    // double sum = initialise_centers_time + assign_pixels_time + update_centers_time + update_data_time;
+    // printf("%23s: %7.4lf\n", "initialise_centers_time", (initialise_centers_time / sum) * 100);
+    // printf("%23s: %7.4lf\n", "assign_pixels_time", (assign_pixels_time / sum) * 100);
+    // printf("%23s: %7.4lf\n", "update_centers_time", (update_centers_time / sum) * 100);
+    // printf("%23s: %7.4lf\n", "update_data_time", (update_data_time / sum) * 100);
 
     free(centers);
     free(labels);
