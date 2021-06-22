@@ -195,7 +195,7 @@ void kmeans_compression_gpu(byte_t *data, int width, int height, int n_channels,
     double update_data_time = 0;
     double read_updated_data_time = 0;
 
-    for (int i = 0; i < 1; i++) {
+    for (int i = 0; i < max_iterations; i++) {
 
         // printf("### Loop %d ###\n", i);
         // printf("[+] Starting assign_pixels kernel: ");
